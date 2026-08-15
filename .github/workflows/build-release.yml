@@ -24,24 +24,38 @@ jobs:
         with:
           python-version: "3.12"
 
-      # 3. Install dependencies + PyInstaller
+      # 3. Install UPX (compressor untuk memperkecil ukuran .exe)
+      - name: Install UPX
+        run: choco install upx --no-progress -y
+
+      # 4. Install dependencies + PyInstaller
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
 
-      # 4. Build .exe dengan PyInstaller
-      - name: Build EXE with PyInstaller
+      # 5. Build .exe dengan PyInstaller + UPX compression
+      - name: Build EXE with PyInstaller + UPX
         run: |
+          $upxPath = (Get-Command upx).Source | Split-Path
           pyinstaller `
             --onefile `
             --windowed `
             --name "NudgeNote" `
             --add-data "settings.json;." `
+            --upx-dir "$upxPath" `
+            --upx-exclude "vcruntime140.dll" `
+            --upx-exclude "python3.dll" `
             main.py
 
-      # 5. Upload artifact untuk debugging (opsional)
+      # 6. Tampilkan ukuran file hasil build
+      - name: Show EXE file size
+        run: |
+          $size = (Get-Item dist/NudgeNote.exe).length / 1MB
+          Write-Host ("NudgeNote.exe size: {0:N2} MB" -f $size)
+
+      # 7. Upload artifact untuk debugging (opsional)
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -49,7 +63,7 @@ jobs:
           path: dist/NudgeNote.exe
           retention-days: 7
 
-      # 6. Buat GitHub Release dan upload .exe sebagai asset
+      # 8. Buat GitHub Release dan upload .exe sebagai asset
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
