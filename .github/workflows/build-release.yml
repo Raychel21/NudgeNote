@@ -1,0 +1,74 @@
+name: Build & Release NudgeNote.exe
+
+on:
+  push:
+    tags:
+      - "v*.*.*"   # Trigger saat push tag seperti v1.0.0
+
+permissions:
+  contents: write  # Diperlukan untuk membuat GitHub Release
+
+jobs:
+  build-windows:
+    name: Build Windows EXE
+    runs-on: windows-latest
+
+    steps:
+      # 1. Checkout source code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Setup Python
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 3. Install dependencies + PyInstaller
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      # 4. Build .exe dengan PyInstaller
+      - name: Build EXE with PyInstaller
+        run: |
+          pyinstaller `
+            --onefile `
+            --windowed `
+            --name "NudgeNote" `
+            --add-data "settings.json;." `
+            main.py
+
+      # 5. Upload artifact untuk debugging (opsional)
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NudgeNote-exe
+          path: dist/NudgeNote.exe
+          retention-days: 7
+
+      # 6. Buat GitHub Release dan upload .exe sebagai asset
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "NudgeNote ${{ github.ref_name }}"
+          body: |
+            ## 📌 NudgeNote ${{ github.ref_name }}
+
+            > *"Capture now, we'll remind you later."*
+
+            ### ⬇️ Download
+            Unduh **NudgeNote.exe** di bawah, jalankan langsung — tidak perlu install Python.
+
+            ### ✅ Cara Pakai
+            1. Download `NudgeNote.exe`
+            2. Double-click untuk menjalankan
+            3. Aplikasi akan muncul sebagai overlay di atas layar
+
+            ### 📋 Changelog
+            _Lihat commit history untuk detail perubahan._
+          files: dist/NudgeNote.exe
+          draft: false
+          prerelease: false
