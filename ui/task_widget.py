@@ -3,6 +3,23 @@ from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QCheckBox, QLabel, QPushButton
 )
 
+# ── Module-level colorblind mode ──────────────────────────────────────────────
+# Set by overlay_window after settings change; read by every badge on paint.
+_colorblind_mode = "normal"
+
+def set_colorblind_mode(mode: str):
+    """Update the global colorblind mode; call refresh_task_list() afterwards."""
+    global _colorblind_mode
+    _colorblind_mode = mode
+
+# Badge color palettes per colorblind mode
+_BADGE_COLORS = {
+    "normal":       {"High": "#E60000", "Med": "#E8A000", "Low": "#00A550"},
+    "deuteranopia": {"High": "#D97706", "Med": "#C48E00", "Low": "#0284C7"},
+    "protanopia":   {"High": "#B45309", "Med": "#C48E00", "Low": "#0369A1"},
+}
+
+
 class TaskItemWidget(QFrame):
     """
     Custom widget row displaying an individual task with checkbox,

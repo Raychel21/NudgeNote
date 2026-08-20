@@ -1,12 +1,49 @@
-from PyQt6.QtCore import Qt, QPoint, QDate
+from PyQt6.QtCore import Qt, QPoint, QDate, QEvent
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QComboBox, QDateEdit, QScrollArea, QFrame, QListView
 )
 
+
+class VerticalOnlyScrollArea(QScrollArea):
+    """
+    QScrollArea that strictly allows only vertical scrolling.
+    - Blocks horizontal mouse-wheel / trackpad events.
+    - Pins the inner widget width to the viewport on every resize so
+      content can never overflow and trigger a horizontal scroll range.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.viewport().installEventFilter(self)
+
+    # Block horizontal wheel/trackpad scroll
+    def wheelEvent(self, event):
+        delta = event.angleDelta()
+        if abs(delta.y()) >= abs(delta.x()):
+            super().wheelEvent(event)   # normal vertical scroll
+        else:
+            event.ignore()              # drop pure-horizontal gesture
+
+    # Pin inner widget width whenever the scroll area is resized
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        w = self.widget()
+        if w:
+            w.setFixedWidth(self.viewport().width())
+
+    # Also intercept viewport events for completeness
+    def eventFilter(self, obj, event):
+        if obj is self.viewport() and event.type() == QEvent.Type.Wheel:
+            delta = event.angleDelta()
+            if abs(delta.x()) > abs(delta.y()):   # horizontal-dominant
+                return True                        # consume / block it
+        return super().eventFilter(obj, event)
+
 from ui.styles import get_style
-from ui.task_widget import TaskItemWidget
+from ui.task_widget import TaskItemWidget, set_colorblind_mode
 from storage import TaskManager, SettingsManager
 from reminder import ReminderWatchdog
 
@@ -15,9 +52,8 @@ TRANSLATIONS = {
         "title": "📌 NudgeNote",
         "add_placeholder": "Tambah tugas baru...",
         "add_btn": "+ Tambah",
-        "theme_dark_tooltip": "Mode Gelap (Klik untuk beralih ke Terang)",
-        "theme_light_tooltip": "Mode Terang (Klik untuk beralih ke Gelap)",
         "lang_tooltip": "Ganti Bahasa (ID / EN)",
+        "settings_tooltip": "Buka Pengaturan",
         "priority_tooltip": "Pilih Skala Prioritas (High, Medium, Low)",
         "date_tooltip": "Memilih Tanggal Deadline",
         "time_tooltip": "Memilih Jam Deadline",
@@ -30,9 +66,8 @@ TRANSLATIONS = {
         "title": "📌 NudgeNote",
         "add_placeholder": "Add new task...",
         "add_btn": "+ Add",
-        "theme_dark_tooltip": "Dark Mode (Click to switch to Light)",
-        "theme_light_tooltip": "Light Mode (Click to switch to Dark)",
         "lang_tooltip": "Switch Language (ID / EN)",
+        "settings_tooltip": "Open Settings",
         "priority_tooltip": "Select Priority Level (High, Medium, Low)",
         "date_tooltip": "Select Deadline Date",
         "time_tooltip": "Select Deadline Time",
@@ -69,9 +104,11 @@ class CompactComboBox(QComboBox):
 class NudgeNoteOverlay(QWidget):
     """
     Main Frameless Always-on-Top Desktop Overlay Window for NudgeNote.
-    Supports smooth dragging, Dark/Light Mode toggle, EN/ID Language toggle,
+    Supports smooth dragging, 5 selectable themes, EN/ID Language toggle,
     Sort By (Priority vs Deadline) options, Dot Priority indicators,
     JSON auto-save, and background deadline watchdog popups.
+    Settings Panel provides: theme, font, colorblind mode, deadline alert
+    hours, custom alert sound, and Windows startup toggle.
     """
 
     def __init__(self):
@@ -81,13 +118,20 @@ class NudgeNoteOverlay(QWidget):
         self.task_manager = TaskManager()
         self.settings_manager = SettingsManager()
         self.current_theme = self.settings_manager.get_theme()
+        self.current_font = self.settings_manager.get_font()
+        self.current_custom_bg = self.settings_manager.get_custom_bg()
+        self.current_colorblind = self.settings_manager.get_colorblind_mode()
+        
+        # Apply colorblind mode to task widget module
+        set_colorblind_mode(self.current_colorblind)
+        
         self.current_lang = self.settings_manager.get_lang()
         self.current_sort = self.settings_manager.get_sort_by()
         self.selected_month = None  # None = show all months
         self.selected_year = QDate.currentDate().year()  # default: current year
         self.month_buttons = []
 
-        self.watchdog = ReminderWatchdog(self.task_manager)
+        self.watchdog = ReminderWatchdog(self.task_manager, self.settings_manager)
         self.watchdog.reminder_alert.connect(self.on_reminder_alert)
         self.watchdog.start()
 
@@ -97,8 +141,7 @@ class NudgeNoteOverlay(QWidget):
         # Frameless, Always-on-Top, and Translucent Window Flags
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool
+            Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
@@ -106,7 +149,7 @@ class NudgeNoteOverlay(QWidget):
         self.setMinimumSize(420, 440)
 
         self.init_ui()
-        self.update_theme_ui()
+        self.apply_current_style()
         self.update_lang_ui()  # also calls refresh_task_list internally
 
     def init_ui(self):
@@ -135,19 +178,19 @@ class NudgeNoteOverlay(QWidget):
 
         header_layout.addStretch()
 
+        # Settings Button (⚙️) — opens Settings Dialog
+        self.settings_btn = QPushButton("⚙️", header_frame)
+        self.settings_btn.setObjectName("SettingsBtn")
+        self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.settings_btn.clicked.connect(self.open_settings)
+        header_layout.addWidget(self.settings_btn)
+
         # Language Switcher Button (ID / EN)
         self.lang_btn = QPushButton(self.current_lang, header_frame)
         self.lang_btn.setObjectName("LangToggleBtn")
         self.lang_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.lang_btn.clicked.connect(self.toggle_language)
         header_layout.addWidget(self.lang_btn)
-
-        # Theme Toggle Button (Icon Only: 🌙 / ☀️)
-        self.theme_btn = QPushButton(header_frame)
-        self.theme_btn.setObjectName("ThemeToggleBtn")
-        self.theme_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.theme_btn.clicked.connect(self.toggle_theme)
-        header_layout.addWidget(self.theme_btn)
 
         # Minimize Button
         min_btn = QPushButton("—", header_frame)
@@ -255,9 +298,11 @@ class NudgeNoteOverlay(QWidget):
 
         content_layout.addLayout(sort_year_layout)
 
-        # Month Filter Bar (Dedicated full-width row for 12 months with equal spacing)
-        month_bar_layout = QHBoxLayout()
-        month_bar_layout.setContentsMargins(0, 2, 0, 4)
+        # Month Filter Bar — wrapped in a dark pill container for wallpaper readability
+        month_bar_frame = QFrame(content_widget)
+        month_bar_frame.setObjectName("MonthBarRow")
+        month_bar_layout = QHBoxLayout(month_bar_frame)
+        month_bar_layout.setContentsMargins(4, 3, 4, 3)
         month_bar_layout.setSpacing(3)
 
         for i in range(1, 13):
@@ -269,12 +314,11 @@ class NudgeNoteOverlay(QWidget):
             month_bar_layout.addWidget(btn)
             self.month_buttons.append(btn)
 
-        content_layout.addLayout(month_bar_layout)
+        content_layout.addWidget(month_bar_frame)
 
-        # Task Scroll List
-        self.scroll_area = QScrollArea(content_widget)
+        # Task Scroll List — vertical scroll ONLY (custom class blocks all horizontal)
+        self.scroll_area = VerticalOnlyScrollArea(content_widget)
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
 
         self.task_list_container = QWidget()
@@ -291,26 +335,44 @@ class NudgeNoteOverlay(QWidget):
         container_layout.addWidget(content_widget, stretch=1)
         outer_layout.addWidget(self.container)
 
-    def toggle_theme(self):
-        """Toggles between Dark and Light mode and persists setting."""
-        if self.current_theme == "dark":
-            self.current_theme = "light"
-        else:
-            self.current_theme = "dark"
+    # ── Theme & Style ──────────────────────────────────────────────────────────
 
-        self.settings_manager.set_theme(self.current_theme)
-        self.update_theme_ui()
+    def apply_current_style(self):
+        """Applies the current theme/font/colorblind/bg stylesheet to the window."""
+        self.setStyleSheet(get_style(
+            self.current_theme,
+            self.current_font,
+            self.current_colorblind,
+            self.current_custom_bg
+        ))
 
-    def update_theme_ui(self):
-        """Applies stylesheet and icon-only button according to current theme."""
-        self.setStyleSheet(get_style(self.current_theme))
-        t = TRANSLATIONS.get(self.current_lang, TRANSLATIONS["ID"])
-        if self.current_theme == "dark":
-            self.theme_btn.setText("🌙")
-            self.theme_btn.setToolTip(t["theme_dark_tooltip"])
-        else:
-            self.theme_btn.setText("☀️")
-            self.theme_btn.setToolTip(t["theme_light_tooltip"])
+    # ── Settings Dialog ────────────────────────────────────────────────────────
+
+    def open_settings(self):
+        """Opens the Settings Dialog. On save, applies updated settings live."""
+        from ui.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(self.settings_manager, parent=self)
+        # Position dialog near the settings button
+        btn_pos = self.settings_btn.mapToGlobal(QPoint(0, self.settings_btn.height() + 4))
+        dialog.move(btn_pos.x(), btn_pos.y())
+        dialog.settings_saved.connect(self._on_settings_saved)
+        dialog.exec()
+
+    def _on_settings_saved(self):
+        """Triggered when user clicks Save in SettingsDialog. Applies all new settings live."""
+        self.current_theme = self.settings_manager.get_theme()
+        self.current_font = self.settings_manager.get_font()
+        self.current_custom_bg = self.settings_manager.get_custom_bg()
+        
+        new_colorblind = self.settings_manager.get_colorblind_mode()
+        self.current_colorblind = new_colorblind
+        set_colorblind_mode(self.current_colorblind)
+
+        self.apply_current_style()
+        self.refresh_task_list()  # Forces a re-render of badges for colorblindness
+
+    # ── Language ───────────────────────────────────────────────────────────────
 
     def toggle_language(self):
         """Toggles between ID and EN language and persists setting."""
@@ -336,6 +398,7 @@ class NudgeNoteOverlay(QWidget):
         self.add_btn.setText(t["add_btn"])
 
         self.lang_btn.setToolTip(t["lang_tooltip"])
+        self.settings_btn.setToolTip(t["settings_tooltip"])
         self.priority_combo.setToolTip(t["priority_tooltip"])
         self.date_edit.setToolTip(t["date_tooltip"])
         self.time_input.setToolTip(t["time_tooltip"])
@@ -353,12 +416,6 @@ class NudgeNoteOverlay(QWidget):
         names = MONTHS_SHORT_ID if self.current_lang == "ID" else MONTHS_SHORT_EN
         for i, btn in enumerate(self.month_buttons):
             btn.setText(names[i])
-
-        # Re-apply theme tooltips
-        if self.current_theme == "dark":
-            self.theme_btn.setToolTip(t["theme_dark_tooltip"])
-        else:
-            self.theme_btn.setToolTip(t["theme_light_tooltip"])
 
         # Refresh task list so date headers use updated language
         self.refresh_task_list()
