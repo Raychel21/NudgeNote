@@ -1,6 +1,7 @@
 import json
 import os
 import uuid
+import winreg
 from datetime import datetime
 
 PRIORITY_WEIGHTS = {
@@ -10,11 +11,23 @@ PRIORITY_WEIGHTS = {
     "Low": 3
 }
 
+APP_NAME = "NudgeNote"
+
 class SettingsManager:
     """Manages application settings like theme preferences in settings.json."""
     def __init__(self, filepath="settings.json"):
         self.filepath = os.path.abspath(filepath)
-        self.settings = {"theme": "dark", "lang": "ID", "sort_by": "priority"}
+        self.settings = {
+            "theme": "midnight",
+            "font": "Segoe UI",
+            "lang": "ID",
+            "sort_by": "priority",
+            "deadline_alert_hours": 1,
+            "startup": False,
+            "alert_sound": "",
+            "colorblind_mode": "normal",
+            "custom_bg": ""
+        }
         self.load_settings()
 
     def load_settings(self):
@@ -36,13 +49,29 @@ class SettingsManager:
         except Exception as e:
             print(f"[SettingsManager] Error saving settings: {e}")
 
+    # ── Theme ──────────────────────────────────────────────────────────────
     def get_theme(self) -> str:
-        return self.settings.get("theme", "dark")
+        theme = self.settings.get("theme", "midnight")
+        # Migrate old "dark"/"light" values to new theme names
+        if theme == "dark":
+            return "midnight"
+        if theme == "light":
+            return "parchment"
+        return theme
 
     def set_theme(self, theme: str):
         self.settings["theme"] = theme
         self.save_settings()
 
+    # ── Font ───────────────────────────────────────────────────────────────
+    def get_font(self) -> str:
+        return self.settings.get("font", "Segoe UI")
+
+    def set_font(self, font: str):
+        self.settings["font"] = font
+        self.save_settings()
+
+    # ── Language ───────────────────────────────────────────────────────────
     def get_lang(self) -> str:
         return self.settings.get("lang", "ID")
 
@@ -50,11 +79,110 @@ class SettingsManager:
         self.settings["lang"] = lang
         self.save_settings()
 
+    # ── Sort ───────────────────────────────────────────────────────────────
     def get_sort_by(self) -> str:
         return self.settings.get("sort_by", "priority")
 
     def set_sort_by(self, sort_by: str):
         self.settings["sort_by"] = sort_by
+        self.save_settings()
+
+    # ── Deadline Alert Hours ───────────────────────────────────────────────
+    def get_deadline_alert_hours(self) -> int:
+        """Returns deadline alert threshold in hours (1–48). Default: 1."""
+        val = self.settings.get("deadline_alert_hours", 1)
+        try:
+            return max(1, min(48, int(val)))
+        except (TypeError, ValueError):
+            return 1
+
+    def set_deadline_alert_hours(self, hours: int):
+        self.settings["deadline_alert_hours"] = max(1, min(48, int(hours)))
+        self.save_settings()
+
+    # ── Startup ────────────────────────────────────────────────────────────
+    def get_startup(self) -> bool:
+        return bool(self.settings.get("startup", False))
+
+    def set_startup(self, enabled: bool):
+        self.settings["startup"] = enabled
+        self.save_settings()
+        self._apply_startup_registry(enabled)
+
+    def _apply_startup_registry(self, enabled: bool):
+        """Adds or removes NudgeNote from Windows startup registry key."""
+        reg_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        try:
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER, reg_path,
+                0, winreg.KEY_SET_VALUE
+            )
+            if enabled:
+                # Use pythonw.exe so no console window appears on startup
+                python_exe = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)),
+                    "pythonw_launcher.bat"
+                )
+                # Fallback: just point to main.py with python
+                main_path = os.path.abspath(
+                    os.path.join(os.path.dirname(__file__), "main.py")
+                )
+                import sys
+                exe = sys.executable.replace("python.exe", "pythonw.exe")
+                if not os.path.exists(exe):
+                    exe = sys.executable
+                cmd = f'"{exe}" "{main_path}"'
+                winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, cmd)
+            else:
+                try:
+                    winreg.DeleteValue(key, APP_NAME)
+                except FileNotFoundError:
+                    pass
+            winreg.CloseKey(key)
+        except Exception as e:
+            print(f"[SettingsManager] Registry startup error: {e}")
+
+    def get_startup_from_registry(self) -> bool:
+        """Checks if NudgeNote is actually in startup registry (source of truth)."""
+        reg_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        try:
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER, reg_path,
+                0, winreg.KEY_READ
+            )
+            winreg.QueryValueEx(key, APP_NAME)
+            winreg.CloseKey(key)
+            return True
+        except FileNotFoundError:
+            return False
+        except Exception:
+            return False
+
+    # ── Alert Sound ────────────────────────────────────────────────────────
+    def get_alert_sound(self) -> str:
+        return self.settings.get("alert_sound", "")
+
+    def set_alert_sound(self, path: str):
+        self.settings["alert_sound"] = path
+        self.save_settings()
+
+    # ── Colorblind Mode ────────────────────────────────────────────────────
+    def get_colorblind_mode(self) -> str:
+        """Returns colorblind mode: 'normal', 'deuteranopia', or 'protanopia'."""
+        return self.settings.get("colorblind_mode", "normal")
+
+    def set_colorblind_mode(self, mode: str):
+        valid = {"normal", "deuteranopia", "protanopia"}
+        self.settings["colorblind_mode"] = mode if mode in valid else "normal"
+        self.save_settings()
+
+
+    # ── Custom Background ──────────────────────────────────────────────────
+    def get_custom_bg(self) -> str:
+        return self.settings.get("custom_bg", "")
+
+    def set_custom_bg(self, path: str):
+        self.settings["custom_bg"] = path
         self.save_settings()
 
 

@@ -1,5 +1,11 @@
 {
-  "theme": "dark",
-  "lang": "EN",
-  "sort_by": "priority"
+  "theme": "midnight",
+  "font": "Comic Sans MS",
+  "lang": "ID",
+  "sort_by": "priority",
+  "deadline_alert_hours": 48,
+  "startup": false,
+  "alert_sound": "",
+  "colorblind_mode": "normal",
+  "custom_bg": "C:\\Users\\rayzi\\Downloads\\Streaming\\IT Project - NoteMinder\\custom_bg.png"
 }
