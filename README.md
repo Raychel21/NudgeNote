@@ -12,11 +12,16 @@ NudgeNote is a lightweight, always-on-top desktop task manager overlay built wit
 | Feature | Description |
 |---|---|
 | 📌 **Always-on-Top Overlay** | Frameless, translucent window that floats above all other apps |
-| 🌙 ☀️ **Dark / Light Mode** | Toggle themes with a single click, saved automatically |
-| 🌐 **Bilingual (ID / EN)** | Full Indonesian and English UI support |
+| 🎨 **5 Themes** | Midnight 🌌, Aurora 🌿, Crimson 🌹, Parchment 📜, Arctic ❄️ — all switchable from Settings |
+| 🖼️ **Custom Background Image** | Upload any image and crop it to fit the window (450 × 570) |
+| 🔤 **Font Picker** | Choose from 5 font families (Segoe UI, Comic Sans MS, Trebuchet MS, Consolas, Georgia) |
+| 👁️ **Colorblind Mode** | Deuteranopia & Protanopia color-safe badge/accent palettes |
+| 🌐 **Bilingual (ID / EN)** | Full Indonesian and English UI, including the Settings dialog |
 | 🎯 **Priority Levels** | HIGH / MED / LOW badges with vivid color coding |
 | 📅 **Deadline Picker** | Date calendar popup + manual time input (HH:MM) |
-| 🔔 **Auto Reminder** | Background watchdog fires OS native notifications when deadline is ≤ 1 hour away |
+| 🔔 **Auto Reminder** | Background watchdog fires OS native notifications at a configurable lead time (1–48 hrs) |
+| 🔊 **Custom Alert Sound** | Play a `.mp3` or `.wav` file when a reminder popup fires |
+| 🚀 **Windows Startup** | Optional auto-launch via Windows registry (HKCU Run, no admin needed) |
 | 📂 **Month & Year Filter** | Quick filter bar for 12 months + year dropdown |
 | 🔃 **Smart Sorting** | Sort tasks by Priority or Deadline with persistent preference |
 | 💾 **JSON Auto-save** | All tasks and settings saved locally — no database needed |
@@ -35,8 +40,8 @@ NudgeNote is a lightweight, always-on-top desktop task manager overlay built wit
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/your-username/nudgenote.git
-cd nudgenote
+git clone https://github.com/Raychel21/NudgeNote.git
+cd NudgeNote
 
 # 2. (Optional) Create a virtual environment
 python -m venv venv
@@ -59,16 +64,19 @@ python main.py
 
 ```
 NudgeNote/
-├── main.py              # Entry point — initializes QApplication & overlay window
-├── reminder.py          # Background watchdog timer for deadline notifications
-├── storage.py           # TaskManager & SettingsManager (JSON persistence)
-├── requirements.txt     # Python dependencies
-├── settings.json        # Auto-generated: stores theme, language, sort preference
-├── tasks.json           # Auto-generated: persisted task data
+├── main.py                # Entry point — initializes QApplication & overlay window
+├── reminder.py            # Background watchdog timer for deadline notifications
+├── storage.py             # TaskManager & SettingsManager (JSON persistence + registry)
+├── requirements.txt       # Python dependencies
+├── settings.json          # Auto-generated: theme, font, language, sort, alert config
+├── tasks.json             # Auto-generated: persisted task data
+├── custom_bg.png          # Auto-generated: cropped custom background image (if set)
 ├── .gitignore
 └── ui/
     ├── overlay_window.py  # Main frameless overlay widget & all UI logic
-    ├── styles.py          # Dark & Light mode Qt stylesheets
+    ├── settings_dialog.py # Full Settings panel (appearance, accessibility, notifs, system)
+    ├── crop_dialog.py     # Image crop dialog for custom background (fixed 450×570 ratio)
+    ├── styles.py          # 5 theme stylesheets + colorblind overrides + font/theme lists
     └── task_widget.py     # Individual task row widget (checkbox, badge, delete)
 ```
 
@@ -101,12 +109,24 @@ NudgeNote/
 
 ### Reminders
 - NudgeNote silently monitors your deadlines in the background (checks every 30 seconds)
-- When a task deadline is **within 1 hour**, an OS notification pops up automatically
+- A popup fires when a deadline is within your configured lead time (default: 1 hour, max: 48 hours)
 - Each task is reminded only once to avoid spam
 
-### Theme & Language
-- Click **🌙 / ☀️** to toggle Dark / Light mode
-- Click **ID / EN** to switch between Indonesian and English UI
+### ⚙️ Settings Panel
+Click the **⚙️** button in the header to open the Settings dialog:
+
+| Section | Options |
+|---|---|
+| **Appearance** | Pick from 5 themes (Midnight, Aurora, Crimson, Parchment, Arctic) |
+| **Custom Background** | Upload & crop any image to use as the window background |
+| **Font** | Choose font family from 5 options |
+| **Accessibility** | Switch colorblind mode: Normal / Deuteranopia / Protanopia |
+| **Notifications** | Set deadline alert lead time (1–48 hours) |
+| **Alert Sound** | Browse for a `.mp3` or `.wav` file to play on reminder |
+| **System** | Toggle Windows auto-startup (registry, no admin needed) |
+
+### Language
+- Click **ID / EN** in the header to switch between Indonesian and English UI
 
 ---
 
@@ -116,10 +136,11 @@ NudgeNote stores everything locally — no cloud, no account:
 
 | File | Content |
 |---|---|
-| `tasks.json` | All tasks with id, title, priority, deadline, status |
-| `settings.json` | Theme, language, and sort preference |
+| `tasks.json` | All tasks with id, title, priority, deadline, done status |
+| `settings.json` | Theme, font, language, sort preference, alert hours, sound path, startup flag |
+| `custom_bg.png` | Cropped background image (only present if a custom background is set) |
 
-> **Tip:** Both files are auto-created on first run. You can safely delete them to reset the app.
+> **Tip:** All files are auto-created on first run. You can safely delete them to reset the app.
 
 ---
 
